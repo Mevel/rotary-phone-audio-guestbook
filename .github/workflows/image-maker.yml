@@ -26,7 +26,7 @@ jobs:
 
     - name: Download Raspberry Pi OS Bookworm Lite Image
       run: |
-        wget https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-10-10/2023-10-10-raspios-bookworm-armhf-lite.zip -O raspios_lite.zip
+        wget https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz -O raspios_lite.zip
         unzip raspios_lite.zip
 
     - name: Extract Raspberry Pi OS Bookworm Lite Image

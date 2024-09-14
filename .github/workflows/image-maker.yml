@@ -26,19 +26,19 @@ jobs:
 
     - name: Download Raspberry Pi OS Bookworm Lite Image
       run: |
-        wget https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz -O raspios_lite.zip
-        unzip raspios_lite.zip
+        # Download the specific Bookworm Lite image
+        wget https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz -O raspios_bookworm_lite.img.xz
 
     - name: Extract Raspberry Pi OS Bookworm Lite Image
       run: |
-        IMAGE_FILE=$(ls *-raspios-bookworm-armhf-lite.img.xz)
-        xz -d "$IMAGE_FILE"
+        # Extract the downloaded .xz image file
+        xz -d raspios_bookworm_lite.img.xz
 
     - name: Mount the Image and Clone Repository
       run: |
         MOUNT_DIR=/mnt/raspi
         mkdir -p $MOUNT_DIR
-        IMAGE=$(ls *-raspios-bookworm-armhf-lite.img)
+        IMAGE=raspios_bookworm_lite.img
         
         # Create loopback device
         sudo losetup -Pf --show $IMAGE
@@ -60,6 +60,15 @@ jobs:
           pip3 install -r /home/pi/rotary-phone-audio-guestbook/requirements.txt
         "
 
+        # Copy and enable the existing service files from the repository
+        sudo cp $MOUNT_DIR/home/pi/rotary-phone-audio-guestbook/src/systemd/*.service $MOUNT_DIR/etc/systemd/system/
+        
+        # Enable all services in the systemd directory
+        sudo chroot $MOUNT_DIR /bin/bash -c "
+          systemctl enable audioGuestbook.service &&
+          systemctl enable audioGuestbookWebserver.service
+        "
+
         # Optionally, set up WiFi config for the image
         echo "country=US
         ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
@@ -69,25 +78,6 @@ jobs:
             psk=\"your_wifi_password\"
         }" | sudo tee -a $MOUNT_DIR/boot/wpa_supplicant.conf
 
-        # Set up the Python service for automatic start
-        echo "[Unit]
-        Description=Rotary Phone Audio Guestbook Service
-        After=network.target
-
-        [Service]
-        ExecStart=/usr/bin/python3 /home/pi/rotary-phone-audio-guestbook/main.py
-        WorkingDirectory=/home/pi/rotary-phone-audio-guestbook
-        StandardOutput=inherit
-        StandardError=inherit
-        Restart=always
-        User=pi
-
-        [Install]
-        WantedBy=multi-user.target" | sudo tee $MOUNT_DIR/etc/systemd/system/guestbook.service
-
-        # Enable the service to start on boot
-        sudo chroot $MOUNT_DIR systemctl enable guestbook.service
-
         # Unmount the image partitions
         sudo umount $MOUNT_DIR/boot
         sudo umount $MOUNT_DIR
@@ -95,7 +85,7 @@ jobs:
 
     - name: Compress Image
       run: |
-        IMAGE=$(ls *-raspios-bookworm-armhf-lite.img)
+        IMAGE=raspios_bookworm_lite.img
         xz "$IMAGE"
 
     - name: Upload Raspberry Pi Image

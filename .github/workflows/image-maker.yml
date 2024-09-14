@@ -1,0 +1,105 @@
+name: Build Raspberry Pi Bookworm Lite Image
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v2
+      with:
+        platforms: arm
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget unzip xz-utils qemu-system-arm git
+
+    - name: Download Raspberry Pi OS Bookworm Lite Image
+      run: |
+        wget https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-10-10/2023-10-10-raspios-bookworm-armhf-lite.zip -O raspios_lite.zip
+        unzip raspios_lite.zip
+
+    - name: Extract Raspberry Pi OS Bookworm Lite Image
+      run: |
+        IMAGE_FILE=$(ls *-raspios-bookworm-armhf-lite.img.xz)
+        xz -d "$IMAGE_FILE"
+
+    - name: Mount the Image and Clone Repository
+      run: |
+        MOUNT_DIR=/mnt/raspi
+        mkdir -p $MOUNT_DIR
+        IMAGE=$(ls *-raspios-bookworm-armhf-lite.img)
+        
+        # Create loopback device
+        sudo losetup -Pf --show $IMAGE
+        
+        # Mount the image partitions
+        sudo mount /dev/loop0p2 $MOUNT_DIR
+        sudo mount /dev/loop0p1 $MOUNT_DIR/boot
+
+        # Enable SSH by creating an empty file 'ssh' in the boot partition
+        sudo touch $MOUNT_DIR/boot/ssh
+
+        # Clone the repository into the Raspberry Pi image (into /home/pi)
+        sudo git clone https://github.com/Mevel/rotary-phone-audio-guestbook.git $MOUNT_DIR/home/pi/rotary-phone-audio-guestbook
+
+        # Install Python and dependencies in the chroot environment
+        sudo chroot $MOUNT_DIR /bin/bash -c "
+          apt-get update &&
+          apt-get install -y python3 python3-pip &&
+          pip3 install -r /home/pi/rotary-phone-audio-guestbook/requirements.txt
+        "
+
+        # Optionally, set up WiFi config for the image
+        echo "country=US
+        ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+        update_config=1
+        network={
+            ssid=\"your_wifi_name\"
+            psk=\"your_wifi_password\"
+        }" | sudo tee -a $MOUNT_DIR/boot/wpa_supplicant.conf
+
+        # Set up the Python service for automatic start
+        echo "[Unit]
+        Description=Rotary Phone Audio Guestbook Service
+        After=network.target
+
+        [Service]
+        ExecStart=/usr/bin/python3 /home/pi/rotary-phone-audio-guestbook/main.py
+        WorkingDirectory=/home/pi/rotary-phone-audio-guestbook
+        StandardOutput=inherit
+        StandardError=inherit
+        Restart=always
+        User=pi
+
+        [Install]
+        WantedBy=multi-user.target" | sudo tee $MOUNT_DIR/etc/systemd/system/guestbook.service
+
+        # Enable the service to start on boot
+        sudo chroot $MOUNT_DIR systemctl enable guestbook.service
+
+        # Unmount the image partitions
+        sudo umount $MOUNT_DIR/boot
+        sudo umount $MOUNT_DIR
+        sudo losetup -d /dev/loop0
+
+    - name: Compress Image
+      run: |
+        IMAGE=$(ls *-raspios-bookworm-armhf-lite.img)
+        xz "$IMAGE"
+
+    - name: Upload Raspberry Pi Image
+      uses: actions/upload-artifact@v3
+      with:
+        name: raspberry-pi-bookworm-lite-image
+        path: "*.img.xz"
